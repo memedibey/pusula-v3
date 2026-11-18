@@ -4,7 +4,7 @@ import { ParsedPlanResult, parseDocxPlan, parsePdfPlan, parsePlainTextPlan, pars
 import { shareOrDownloadBlob } from "../core/mobileDownload";
 import { parseBackupJson } from "../core/officialExport";
 import { buildWeeklyXlsxBlob } from "../core/richExports";
-import { PusulaStateV3, groupTimetableLessons, makeCellKey } from "../core/schema";
+import { PusulaStateV3, groupTimetableLessons, getTeachingWeeks, makeCellKey } from "../core/schema";
 import { SyncMergeAnalysis, analyzeSyncMerge, applySyncMerge, decodeSyncCode, encodeSyncCode } from "../core/syncEngine";
 
 interface Props {
@@ -18,7 +18,8 @@ interface Props {
 function buildTemplateCsv(state: PusulaStateV3): Blob {
   const groups = groupTimetableLessons(state.timetable, state.slotsPerDay);
   const lines = ["Hafta;Ders;Kazanım (Aynı haftada birden çok kazanım için | kullanın)"];
-  for (let w = 1; w <= 37; w++) {
+  const totalW = getTeachingWeeks(state);
+  for (let w = 1; w <= totalW; w++) {
     groups.forEach((g) => {
       const first = g.lessons[0];
       const existing = first ? (state.outcomes[makeCellKey(w, first.dayIndex, first.slotIndex)] || "").replace(/\r?\n+/g, " | ") : "";
@@ -57,6 +58,7 @@ export const BulkBranchImporter: React.FC<Props> = ({
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const jsonInputRef = useRef<HTMLInputElement | null>(null);
 
+  const totalWeeks = getTeachingWeeks(state);
   const effectiveSubject =
     selectedSubject === "auto"
       ? parsed?.resolvedSubject || uniqueSubjects[0] || ""
@@ -88,10 +90,10 @@ export const BulkBranchImporter: React.FC<Props> = ({
       }
       const buf = await f.arrayBuffer();
       let res: ParsedPlanResult;
-      if (lower.endsWith(".docx")) res = await parseDocxPlan(buf, uniqueSubjects);
-      else if (lower.endsWith(".xlsx")) res = await parseXlsxPlan(buf, uniqueSubjects);
-      else if (lower.endsWith(".pdf")) res = await parsePdfPlan(buf, uniqueSubjects);
-      else res = parsePlainTextPlan(new TextDecoder("utf-8").decode(buf), uniqueSubjects);
+      if (lower.endsWith(".docx")) res = await parseDocxPlan(buf, uniqueSubjects, totalWeeks);
+      else if (lower.endsWith(".xlsx")) res = await parseXlsxPlan(buf, uniqueSubjects, totalWeeks);
+      else if (lower.endsWith(".pdf")) res = await parsePdfPlan(buf, uniqueSubjects, totalWeeks);
+      else res = parsePlainTextPlan(new TextDecoder("utf-8").decode(buf), uniqueSubjects, totalWeeks);
 
       if (res.totalItems === 0) {
         onNotify("Dosyada hafta ve kazanım eşleşmesi bulunamadı.");
@@ -122,15 +124,42 @@ export const BulkBranchImporter: React.FC<Props> = ({
 
   const missingWeeks37 = useMemo(() => {
     const out: number[] = [];
-    for (let w = 1; w <= 37; w++) if (!activeWeeklyMap[w] || activeWeeklyMap[w].length === 0) out.push(w);
+    for (let w = 1; w <= totalWeeks; w++) if (!activeWeeklyMap[w] || activeWeeklyMap[w].length === 0) out.push(w);
     return out;
-  }, [activeWeeklyMap]);
+  }, [activeWeeklyMap, totalWeeks]);
+
+  const matchedMultiSubjects = useMemo(() => {
+    const bySubj = parsed?.res.outcomesBySubject;
+    if (!bySubj) return [];
+    return Object.keys(bySubj).filter((k) =>
+      uniqueSubjects.some((u) => u.toLocaleLowerCase("tr-TR") === k.toLocaleLowerCase("tr-TR"))
+    );
+  }, [parsed, uniqueSubjects]);
+
+  const handleApplyAllSubjects = () => {
+    if (!parsed || !parsed.res.outcomesBySubject || matchedMultiSubjects.length < 2) return;
+    let cur = state;
+    let totalCells = 0;
+    matchedMultiSubjects.forEach((subjKey) => {
+      const targetSubj = uniqueSubjects.find((u) => u.toLocaleLowerCase("tr-TR") === subjKey.toLocaleLowerCase("tr-TR")) || subjKey;
+      const rawMap = parsed.res.outcomesBySubject![subjKey] || {};
+      const filledW = Object.keys(rawMap).length;
+      const weeklyOutcomes = balance37 && filledW >= 15 && filledW !== totalWeeks ? rebalanceWeeklyPlan(rawMap, totalWeeks) : rawMap;
+      const secs = groups.filter((g) => g.subject === targetSubj).map((g) => g.section || "").filter((v, i, arr) => arr.indexOf(v) === i);
+      const res = distributePlanToSections(cur, { subject: targetSubj, sections: secs, weeklyOutcomes, mode: distMode, skipDayHolidays: true });
+      cur = res.nextState;
+      totalCells += res.writtenCells;
+    });
+    onUpdateState(cur, `${matchedMultiSubjects.length} ders toplu dağıtıldı (${totalCells} hücre)`);
+    onNotify(`${matchedMultiSubjects.length} ders (${matchedMultiSubjects.join(", ")}) -> ${totalCells} hücreye yazıldı.`);
+    setParsed(null);
+  };
 
   const handleApplyPlan = () => {
     if (!parsed || !effectiveSubject) return;
-    const filledW = 37 - missingWeeks37.length;
-    const shouldBalance = balance37 && filledW >= 15 && (missingWeeks37.length > 0 || Object.keys(activeWeeklyMap).length > 37);
-    const weeklyOutcomes = shouldBalance ? rebalanceWeeklyPlan(activeWeeklyMap, 37) : activeWeeklyMap;
+    const filledW = totalWeeks - missingWeeks37.length;
+    const shouldBalance = balance37 && filledW >= 15 && (missingWeeks37.length > 0 || Object.keys(activeWeeklyMap).length > totalWeeks);
+    const weeklyOutcomes = shouldBalance ? rebalanceWeeklyPlan(activeWeeklyMap, totalWeeks) : activeWeeklyMap;
 
     const targets = selectedSections.length > 0 ? selectedSections : availableSections;
     const res = distributePlanToSections(state, {
@@ -235,7 +264,7 @@ export const BulkBranchImporter: React.FC<Props> = ({
           <textarea rows={5} value={rawText} onChange={(e) => setRawText(e.target.value)} placeholder={"1;M.7.1.1. Tam sayılarla toplama yapar.\n2;M.7.1.2. Çıkarma yapar."} className="font-mono-num w-full rounded-xl border border-[var(--line)] bg-[var(--bg)] p-3 text-xs" />
           <div>
             <button type="button" onClick={() => {
-              const res = parsePlainTextPlan(rawText, uniqueSubjects);
+              const res = parsePlainTextPlan(rawText, uniqueSubjects, totalWeeks);
               if (res.totalItems === 0) { onNotify("Metinde hafta ve kazanım bulunamadı."); return; }
               const resolved = selectedSubject !== "auto" ? selectedSubject : res.detectedSubject || uniqueSubjects[0] || "";
               setParsed({ res, resolvedSubject: resolved });
@@ -292,16 +321,23 @@ export const BulkBranchImporter: React.FC<Props> = ({
       {parsed && (
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border-2 border-[var(--accent)] bg-[var(--accent-soft)] p-3.5">
           <div className="flex flex-col gap-1 text-sm">
-            <div><strong>{effectiveSubject}</strong> · <strong>{37 - missingWeeks37.length}/37 hafta</strong> ({parsed.res.totalItems} kazanım) dağıtıma hazır.</div>
-            {missingWeeks37.length > 0 && (37 - missingWeeks37.length) >= 15 && (
+            <div><strong>{effectiveSubject}</strong> · <strong>{totalWeeks - missingWeeks37.length}/{totalWeeks} hafta</strong> ({parsed.res.totalItems} kazanım) dağıtıma hazır.</div>
+            {missingWeeks37.length > 0 && (totalWeeks - missingWeeks37.length) >= 15 && (
               <label className="flex cursor-pointer items-center gap-2 text-xs text-[var(--muted)]">
                 <input type="checkbox" checked={balance37} onChange={(e) => setBalance37(e.target.checked)} />
-                <span>Boş kalan {missingWeeks37.length} haftayı 1–37 arasına dengeli yay (hiçbir hafta boş kalmasın)</span>
+                <span>Boş kalan {missingWeeks37.length} haftayı 1–{totalWeeks} arasına dengeli yay (hiçbir hafta boş kalmasın)</span>
               </label>
             )}
           </div>
           <div className="flex gap-2">
-            <button type="button" onClick={handleApplyPlan} className="kd-btn kd-btn-primary">Onayla ve Aktar</button>
+            {matchedMultiSubjects.length >= 2 && (
+              <button type="button" onClick={handleApplyAllSubjects} className="kd-btn kd-btn-primary">
+                Tümünü Dağıt ({matchedMultiSubjects.length} Ders)
+              </button>
+            )}
+            <button type="button" onClick={handleApplyPlan} className={`kd-btn ${matchedMultiSubjects.length >= 2 ? "" : "kd-btn-primary"}`}>
+              {matchedMultiSubjects.length >= 2 ? `Yalnız ${effectiveSubject}` : "Onayla ve Aktar"}
+            </button>
             <button type="button" onClick={() => setParsed(null)} className="kd-btn">İptal</button>
           </div>
         </div>

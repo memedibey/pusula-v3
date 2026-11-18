@@ -131,6 +131,7 @@ export function applySyncMerge(
     outcomes,
     outcomeUpdatedAt,
     teacherNotes: { ...incoming.teacherNotes, ...local.teacherNotes },
+    doneMarks: { ...(incoming.doneMarks || {}), ...(local.doneMarks || {}) },
     updatedAt: Math.max(now, local.updatedAt, incoming.updatedAt)
   };
 }

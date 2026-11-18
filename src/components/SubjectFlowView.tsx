@@ -88,6 +88,21 @@ export const SubjectFlowView: React.FC<Props> = ({
     onUpdateState({ ...state, teacherNotes: nextNotes, updatedAt: Date.now() }, "Öğretmen notu");
   };
 
+  const toggleDone = (dayIndex: number, slotIndex: number) => {
+    const key = makeCellKey(week, dayIndex, slotIndex);
+    const nextMarks = { ...(state.doneMarks || {}) };
+    if (nextMarks[key]) delete nextMarks[key];
+    else nextMarks[key] = Date.now();
+    onUpdateState({ ...state, doneMarks: nextMarks, updatedAt: Date.now() }, "İşlendi işareti");
+  };
+
+  const copySingleCell = async (dayIndex: number, slotIndex: number) => {
+    const txt = (state.outcomes[makeCellKey(week, dayIndex, slotIndex)] || "").trim();
+    if (!txt) return;
+    try { await navigator.clipboard.writeText(txt); onNotify("Kazanım panoya kopyalandı."); }
+    catch { onNotify("Panoya kopyalanamadı."); }
+  };
+
   const spreadToEmptySlots = (sourceDay: number, sourceSlot: number) => {
     const val = (state.outcomes[makeCellKey(week, sourceDay, sourceSlot)] || "").trim();
     if (!val) return;
@@ -110,6 +125,50 @@ export const SubjectFlowView: React.FC<Props> = ({
       `${activeGroup.displayTitle} boş saatlere yayma`
     );
     onNotify(`${empties.length} boş ders saatine yayıldı.`);
+  };
+
+  const siblingGroups = groups.filter(
+    (g) => g.groupKey !== activeGroup.groupKey && g.subject.toLocaleLowerCase("tr-TR") === activeGroup.subject.toLocaleLowerCase("tr-TR")
+  );
+
+  const copyToSiblingSections = () => {
+    if (siblingGroups.length === 0) return;
+    const sourceItems = activeGroup.lessons
+      .map((l) => (state.outcomes[makeCellKey(week, l.dayIndex, l.slotIndex)] || "").trim())
+      .filter(Boolean);
+    if (sourceItems.length === 0) {
+      onNotify("Önce bu şubeye en az bir kazanım girin.");
+      return;
+    }
+    const nextOutcomes = { ...state.outcomes };
+    const nextTs = { ...state.outcomeUpdatedAt };
+    const now = Date.now();
+    let count = 0;
+    siblingGroups.forEach((grp) => {
+      const total = grp.lessons.length;
+      if (total === 0) return;
+      if (sourceItems.length <= total) {
+        for (let i = 0; i < total; i++) {
+          const idx = Math.min(sourceItems.length - 1, Math.floor((i * sourceItems.length) / total));
+          const k = makeCellKey(week, grp.lessons[i].dayIndex, grp.lessons[i].slotIndex);
+          nextOutcomes[k] = sourceItems[idx];
+          nextTs[k] = now;
+          count++;
+        }
+      } else {
+        const buckets: string[][] = Array.from({ length: total }, () => []);
+        sourceItems.forEach((item, idx) => buckets[Math.min(total - 1, Math.floor((idx * total) / sourceItems.length))].push(item));
+        buckets.forEach((b, i) => {
+          if (b.length === 0) return;
+          const k = makeCellKey(week, grp.lessons[i].dayIndex, grp.lessons[i].slotIndex);
+          nextOutcomes[k] = b.join("\n");
+          nextTs[k] = now;
+          count++;
+        });
+      }
+    });
+    onUpdateState({ ...state, outcomes: nextOutcomes, outcomeUpdatedAt: nextTs, updatedAt: now }, `${activeGroup.subject} şubelere aktarıldı`);
+    onNotify(`${week}. hafta -> ${siblingGroups.length} diğer şubeye (${count} saat) kopyalandı.`);
   };
 
   const copyFromPrevWeek = () => {
@@ -262,11 +321,18 @@ export const SubjectFlowView: React.FC<Props> = ({
               {activeGroup.lessons.length} ders · {filledCount} kazanım girildi
             </span>
           </div>
-          {week > 1 && (
+          <div className="flex flex-wrap gap-1.5">
+            {siblingGroups.length > 0 && (
+              <button type="button" onClick={copyToSiblingSections} className="kd-btn min-h-10 text-[13px]">
+                Diğer şubelere aktar ({siblingGroups.length})
+              </button>
+            )}
+            {week > 1 && (
             <button type="button" onClick={copyFromPrevWeek} className="kd-btn min-h-10 text-[13px]">
               {confirmOverwrite ? "Üzerine yazılsın mı? Tekrar tıkla" : "Önceki haftadan kopyala"}
             </button>
-          )}
+            )}
+          </div>
         </div>
 
         {/* V2 İkonik Dikey Omurgalı Kart Listesi (Kazanım hanesinde tarih/gün/saat yok) */}
@@ -276,6 +342,7 @@ export const SubjectFlowView: React.FC<Props> = ({
             const isToday = dateIso === todayIso;
             const holiday = state.dayHolidays[dateIso];
             const key = makeCellKey(week, l.dayIndex, l.slotIndex);
+            const isDone = Boolean(state.doneMarks?.[key]);
             const rawVal = state.outcomes[key] || "";
             const lines = rawVal
               .split("\n")
@@ -321,6 +388,24 @@ export const SubjectFlowView: React.FC<Props> = ({
                       </span>
 
                       <div className="flex flex-wrap items-center gap-1.5">
+                        {lines.length > 0 && (
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => toggleDone(l.dayIndex, l.slotIndex)}
+                              className={`min-h-[32px] rounded-lg border px-2 text-xs font-bold ${isDone ? "border-emerald-500 bg-emerald-500/15 text-emerald-700 dark:text-emerald-300" : "border-[var(--line)] bg-[var(--bg)] text-[var(--muted)]"}`}
+                            >
+                              {isDone ? "✓ İşlendi" : "○ İşlendi"}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => void copySingleCell(l.dayIndex, l.slotIndex)}
+                              className="min-h-[32px] rounded-lg border border-[var(--line)] bg-[var(--bg)] px-2 text-xs font-medium"
+                            >
+                              Kopyala
+                            </button>
+                          </>
+                        )}
                         {lines.length > 0 && emptyOthers > 0 && (
                           <button
                             type="button"

@@ -56,6 +56,14 @@ export const CockpitView: React.FC<Props> = ({
     onUpdateState({ ...state, teacherNotes: nextNotes, updatedAt: Date.now() }, "Öğretmen özel notu");
   };
 
+  const toggleDone = (slotIndex: number) => {
+    const key = makeCellKey(week, dayIndex, slotIndex);
+    const nextMarks = { ...(state.doneMarks || {}) };
+    if (nextMarks[key]) delete nextMarks[key];
+    else nextMarks[key] = Date.now();
+    onUpdateState({ ...state, doneMarks: nextMarks, updatedAt: Date.now() }, "İşlendi işareti");
+  };
+
   const handleShift = (cell: TimetableCell, slotIndex: number, dir: 1 | -1) => {
     const next = shiftGroupOutcomes(state, cell, week, dayIndex, slotIndex, dir);
     const label = cell.section ? `${cell.section} · ${cell.subject}` : cell.subject;
@@ -165,6 +173,7 @@ export const CockpitView: React.FC<Props> = ({
           const prevWeekText =
             week > 1 ? (state.outcomes[makeCellKey(week - 1, dayIndex, slotIndex)] || "").trim() : "";
           const noteText = state.teacherNotes[key] || "";
+          const isDone = Boolean(state.doneMarks?.[key]);
           const isEditing = editingSlot === slotIndex;
           const isNoteOpen = showNoteSlot === slotIndex;
 
@@ -235,6 +244,15 @@ export const CockpitView: React.FC<Props> = ({
               )}
 
               <div className="mt-3 flex flex-wrap items-center gap-1.5 border-t border-[var(--line)] pt-2">
+                {currentText && (
+                  <button
+                    type="button"
+                    onClick={() => toggleDone(slotIndex)}
+                    className={`min-h-11 sm:min-h-9 rounded-lg border px-2.5 text-xs font-bold ${isDone ? "border-emerald-500 bg-emerald-500/15 text-emerald-700 dark:text-emerald-300" : "border-[var(--line)] bg-[var(--bg)] text-[var(--muted)]"}`}
+                  >
+                    {isDone ? "✓ İşlendi" : "○ İşlendi"}
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={() => handleShift(cell, slotIndex, 1)}

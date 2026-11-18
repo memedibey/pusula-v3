@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from "react";
 import { formatMonFriRange, toMondayIso } from "../core/calendarShift";
 import { PROGRAM_TEMPLATES, ProgramTemplate, SUBJECT_CATALOG_BY_KADEME, getKademeSubjects } from "../core/mebCatalog";
-import { Kademe, MEB_2026_2027_CALENDAR, PusulaStateV3, TeacherMode, TimetableCell } from "../core/schema";
+import { Kademe, MEB_2026_2027_CALENDAR, PusulaStateV3, TeacherMode, TimetableCell, getTeachingWeeks } from "../core/schema";
 
 const DAY_NAMES = ["Pazartesi", "Salı", "Çarşamba", "Perşembe", "Cuma"];
 const KADEME_NAMES: Record<Kademe, string> = {
@@ -24,6 +24,7 @@ export const TimetableBuilder: React.FC<Props> = ({ state, onUpdateState, onOpen
   const [brushSubject, setBrushSubject] = useState<string | null>(null);
   const [brushSection, setBrushSection] = useState("");
   const [showAllTemplates, setShowAllTemplates] = useState(false);
+  const totalWeeks = getTeachingWeeks(state);
 
   const kademeSubjects = useMemo(
     () => getKademeSubjects(state.kademe, state.subjectCatalog),
@@ -107,6 +108,7 @@ export const TimetableBuilder: React.FC<Props> = ({ state, onUpdateState, onOpen
         ...state,
         startMonday: MEB_2026_2027_CALENDAR.term1Start,
         weekHolidays: MEB_2026_2027_CALENDAR.weekHolidays.map((h) => ({ ...h })),
+        teachingWeeks: MEB_2026_2027_CALENDAR.teachingWeeks,
         dayHolidays: {},
         updatedAt: Date.now()
       },
@@ -152,6 +154,39 @@ export const TimetableBuilder: React.FC<Props> = ({ state, onUpdateState, onOpen
       <datalist id={datalistId}>
         {kademeSubjects.map((s) => <option key={s} value={s} />)}
       </datalist>
+
+      <div className="grid grid-cols-1 gap-3 rounded-xl border border-[var(--line)] bg-[var(--bg)] p-3.5 sm:grid-cols-3">
+        <div>
+          <label className="mb-1 block text-xs font-bold uppercase text-[var(--muted)]">Okul Adı (Çıktı Başlığı)</label>
+          <input
+            type="text"
+            value={state.schoolName || ""}
+            onChange={(e) => onUpdateState({ ...state, schoolName: e.target.value, updatedAt: Date.now() }, "Okul adı güncellendi")}
+            placeholder="Örn. Atatürk İlkokulu"
+            className="h-11 w-full rounded-xl border border-[var(--line)] bg-[var(--surface)] px-2.5 text-sm"
+          />
+        </div>
+        <div>
+          <label className="mb-1 block text-xs font-bold uppercase text-[var(--muted)]">Öğretmen Adı</label>
+          <input
+            type="text"
+            value={state.teacherName || ""}
+            onChange={(e) => onUpdateState({ ...state, teacherName: e.target.value, updatedAt: Date.now() }, "Öğretmen adı güncellendi")}
+            placeholder="Örn. Mehmet Yılmaz"
+            className="h-11 w-full rounded-xl border border-[var(--line)] bg-[var(--surface)] px-2.5 text-sm"
+          />
+        </div>
+        <div>
+          <label className="mb-1 block text-xs font-bold uppercase text-[var(--muted)]">Sınıf / Zümre Etiketi</label>
+          <input
+            type="text"
+            value={state.gradeLabel}
+            onChange={(e) => onUpdateState({ ...state, gradeLabel: e.target.value, updatedAt: Date.now() }, "Sınıf etiketi güncellendi")}
+            placeholder="Örn. 4/A Sınıfı"
+            className="h-11 w-full rounded-xl border border-[var(--line)] bg-[var(--surface)] px-2.5 text-sm"
+          />
+        </div>
+      </div>
 
       <div className="grid grid-cols-1 gap-3 rounded-xl border border-[var(--line)] bg-[var(--bg)] p-3.5 sm:grid-cols-3">
         <div>
@@ -326,12 +361,25 @@ export const TimetableBuilder: React.FC<Props> = ({ state, onUpdateState, onOpen
               className="font-mono-num h-11 rounded-xl border border-[var(--line)] bg-[var(--surface)] px-2.5 text-sm"
             />
           </div>
-          <button type="button" onClick={applyMebCalendar} className="kd-btn text-xs">MEB 2026–2027 takvimini uygula</button>
+          <div className="flex flex-wrap items-end gap-2">
+            <div className="flex flex-col gap-1">
+              <label htmlFor="teachingWeeksV3" className="text-xs font-bold uppercase text-[var(--muted)]">Eğitim yılı süresi</label>
+              <select
+                id="teachingWeeksV3"
+                value={totalWeeks}
+                onChange={(e) => onUpdateState({ ...state, teachingWeeks: Number(e.target.value), updatedAt: Date.now() }, `Eğitim yılı ${e.target.value} hafta yapıldı`)}
+                className="font-mono-num h-11 rounded-xl border border-[var(--line)] bg-[var(--surface)] px-2.5 text-sm font-semibold"
+              >
+                {[34, 35, 36, 37, 38, 39, 40].map((w) => <option key={w} value={w}>{w} Hafta</option>)}
+              </select>
+            </div>
+            <button type="button" onClick={applyMebCalendar} className="kd-btn h-11 text-xs">MEB 2026–2027 takvimini uygula</button>
+          </div>
         </div>
 
         <div className="flex flex-wrap items-baseline justify-between gap-2 pt-1">
           <h3 className="m-0 text-sm font-bold">2026–2027 MEB Çalışma Takvimi ve Tatil Haftaları</h3>
-          <span className="font-mono-num text-xs text-[var(--muted)]">Toplam 37 ders haftası</span>
+          <span className="font-mono-num text-xs text-[var(--muted)]">Toplam {totalWeeks} ders haftası</span>
         </div>
 
         <div className="grid grid-cols-1 gap-x-4 gap-y-1 text-xs text-[var(--muted)] sm:grid-cols-2">

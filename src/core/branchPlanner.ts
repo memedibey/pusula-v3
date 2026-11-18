@@ -119,10 +119,13 @@ export function distributePlanToSections(state: PusulaStateV3, opts: DistributeO
 
 export interface GroupProgressRow {
   groupKey: string;
+  subject: string;
+  section?: string;
   displayTitle: string;
   weeklyHours: number;
   totalActiveSlots: number;
   filledSlots: number;
+  behindBestSlots: number;
   completionPct: number;
   lastFilledWeek: number | null;
   lastOutcomePreview: string;
@@ -130,7 +133,7 @@ export interface GroupProgressRow {
 
 export function computeProgressReport(state: PusulaStateV3, upToWeek: number = 37): GroupProgressRow[] {
   const groups = groupTimetableLessons(state.timetable, state.slotsPerDay);
-  return groups.map((grp) => {
+  const rawRows = groups.map((grp) => {
     let totalActiveSlots = 0, filledSlots = 0, lastFilledWeek: number | null = null, lastOutcomePreview = "";
     for (let w = 1; w <= upToWeek; w++) {
       for (const lesson of grp.lessons) {
@@ -143,13 +146,26 @@ export function computeProgressReport(state: PusulaStateV3, upToWeek: number = 3
     }
     return {
       groupKey: grp.groupKey,
+      subject: grp.subject,
+      section: grp.section,
       displayTitle: grp.displayTitle,
       weeklyHours: grp.lessons.length,
       totalActiveSlots,
       filledSlots,
+      behindBestSlots: 0,
       completionPct: totalActiveSlots > 0 ? Math.round((filledSlots / totalActiveSlots) * 100) : 0,
       lastFilledWeek,
       lastOutcomePreview
     };
+  });
+
+  const bestBySubj: Record<string, number> = {};
+  rawRows.forEach((r) => {
+    const sk = r.subject.toLocaleLowerCase("tr-TR");
+    if (r.filledSlots > (bestBySubj[sk] ?? 0)) bestBySubj[sk] = r.filledSlots;
+  });
+  return rawRows.map((r) => {
+    const sk = r.subject.toLocaleLowerCase("tr-TR");
+    return { ...r, behindBestSlots: Math.max(0, (bestBySubj[sk] ?? 0) - r.filledSlots) };
   });
 }

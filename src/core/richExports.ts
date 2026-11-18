@@ -773,3 +773,150 @@ export async function buildWeeklyPdfBlob(canvas: HTMLCanvasElement): Promise<Blo
 
   return new Blob(parts.map((p) => new Uint8Array(p)), { type: "application/pdf" });
 }
+
+export function exportTimetableCardPng(state: PusulaStateV3): void {
+  const W = 1920, H = 1080;
+  const canvas = document.createElement("canvas");
+  canvas.width = W;
+  canvas.height = H;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return;
+
+  const roundBox = (x: number, y: number, w: number, h: number, r: number) => {
+    const rr = Math.min(r, w / 2, h / 2);
+    ctx.beginPath();
+    ctx.moveTo(x + rr, y);
+    ctx.arcTo(x + w, y, x + w, y + h, rr);
+    ctx.arcTo(x + w, y + h, x, y + h, rr);
+    ctx.arcTo(x, y + h, x, y, rr);
+    ctx.arcTo(x, y, x + w, y, rr);
+    ctx.closePath();
+  };
+
+  const wrapCard = (text: string, maxW: number): string[] => {
+    const words = text.trim().split(/\s+/).filter(Boolean);
+    const out: string[] = [];
+    let cur = "";
+    for (const w of words) {
+      const test = cur ? `${cur} ${w}` : w;
+      if (ctx.measureText(test).width <= maxW) cur = test;
+      else { if (cur) out.push(cur); cur = w; }
+    }
+    if (cur) out.push(cur);
+    return out.length ? out : [""];
+  };
+
+  ctx.fillStyle = "#f8fafc";
+  ctx.fillRect(0, 0, W, H);
+  ctx.fillStyle = "#0f172a";
+  ctx.fillRect(0, 0, W, 116);
+  ctx.fillStyle = "#4f46e5";
+  ctx.fillRect(0, 112, W, 4);
+
+  const badge = [state.schoolName, state.teacherName].filter(Boolean).join(" · ");
+  ctx.fillStyle = "#94a3b8";
+  ctx.font = "600 18px system-ui, -apple-system, 'Segoe UI', sans-serif";
+  ctx.fillText(badge || "KAZANIM DEFTERİ · PUSULA", 56, 38);
+
+  ctx.fillStyle = "#ffffff";
+  ctx.font = "700 32px system-ui, -apple-system, 'Segoe UI', sans-serif";
+  ctx.fillText(`Haftalık Ders Programı — ${state.gradeLabel}`, 56, 82);
+
+  const days = ["Pazartesi", "Salı", "Çarşamba", "Perşembe", "Cuma"];
+  const slots = state.slotsPerDay;
+  const startX = 110, startY = 148, gapX = 14, gapY = 10;
+  const colW = (W - startX - 56 - gapX * 4) / 5;
+  const headerH = 44;
+  const availH = H - startY - 96 - headerH;
+  const rowH = Math.min(104, Math.floor((availH - gapY * (slots - 1)) / slots));
+
+  days.forEach((day: string, dIdx: number) => {
+    const x = startX + dIdx * (colW + gapX);
+    roundBox(x, startY, colW, headerH, 10);
+    ctx.fillStyle = "#1e293b";
+    ctx.fill();
+    ctx.fillStyle = "#f8fafc";
+    ctx.font = "700 18px system-ui, sans-serif";
+    ctx.fillText(day, x + 16, startY + 28);
+  });
+
+  const hourCounts = new Map<string, number>();
+  for (let s = 0; s < slots; s++) {
+    const y = startY + headerH + 12 + s * (rowH + gapY);
+    roundBox(48, y, 48, rowH, 10);
+    ctx.fillStyle = "#e2e8f0";
+    ctx.fill();
+    ctx.fillStyle = "#334155";
+    ctx.font = "700 20px ui-monospace, monospace";
+    ctx.fillText(`${s + 1}.`, 60, y + rowH / 2 + 7);
+
+    for (let d = 0; d < 5; d++) {
+      const x = startX + d * (colW + gapX);
+      const cell = state.timetable[d]?.[s];
+      roundBox(x, y, colW, rowH, 12);
+      if (!cell || !cell.subject.trim()) {
+        ctx.fillStyle = "#f1f5f9";
+        ctx.fill();
+        ctx.strokeStyle = "#cbd5e1";
+        ctx.lineWidth = 1;
+        ctx.stroke();
+        ctx.fillStyle = "#94a3b8";
+        ctx.font = "500 15px system-ui, sans-serif";
+        ctx.fillText("—", x + colW / 2 - 6, y + rowH / 2 + 5);
+        continue;
+      }
+
+      const pickColor = (subj: string): { bg: string; border: string; accent: string } => {
+        const sl = subj.toLocaleLowerCase("tr-TR");
+        if (sl.includes("türk") || sl.includes("edebiyat")) return { bg: "#fef2f2", border: "#fecaca", accent: "#dc2626" };
+        if (sl.includes("mat") || sl.includes("geom")) return { bg: "#eff6ff", border: "#bfdbfe", accent: "#2563eb" };
+        if (sl.includes("fen") || sl.includes("fizik") || sl.includes("kimya") || sl.includes("biyo")) return { bg: "#ecfdf5", border: "#a7f3d0", accent: "#059669" };
+        if (sl.includes("sosyal") || sl.includes("hayat") || sl.includes("tarih") || sl.includes("coğ") || sl.includes("felsefe")) return { bg: "#fffbeb", border: "#fde68a", accent: "#d97706" };
+        if (sl.includes("ing") || sl.includes("alman") || sl.includes("dil")) return { bg: "#f5f3ff", border: "#ddd6fe", accent: "#7c3aed" };
+        if (sl.includes("din")) return { bg: "#f0fdf4", border: "#bbf7d0", accent: "#16a34a" };
+        if (sl.includes("oyun") || sl.includes("beden")) return { bg: "#ecfeff", border: "#a5f3fc", accent: "#0891b2" };
+        return { bg: "#f8fafc", border: "#cbd5e1", accent: "#475569" };
+      };
+      const pal = pickColor(cell.subject);
+      hourCounts.set(cell.subject, (hourCounts.get(cell.subject) || 0) + 1);
+      ctx.fillStyle = pal.bg;
+      ctx.fill();
+      ctx.strokeStyle = pal.border;
+      ctx.lineWidth = 2;
+      ctx.stroke();
+
+      roundBox(x + 2, y + 6, 7, rowH - 12, 4);
+      ctx.fillStyle = pal.accent;
+      ctx.fill();
+
+      ctx.fillStyle = "#0f172a";
+      ctx.font = `700 ${rowH < 75 ? 16 : 19}px system-ui, sans-serif`;
+      const lines = wrapCard(cell.subject, colW - 34).slice(0, 2);
+      const textTop = y + (cell.section ? (rowH < 75 ? 24 : 30) : rowH / 2 - (lines.length - 1) * 10 + 5);
+      lines.forEach((ln: string, idx: number) => ctx.fillText(ln, x + 18, textTop + idx * 21));
+
+      if (cell.section) {
+        ctx.fillStyle = pal.accent;
+        ctx.font = "700 15px system-ui, sans-serif";
+        ctx.fillText(cell.section, x + 18, y + rowH - 14);
+      }
+    }
+  }
+
+  const summary = Array.from(hourCounts.entries()).map(([s, n]) => `${s} (${n})`).join(" · ");
+  ctx.fillStyle = "#475569";
+  ctx.font = "600 15px system-ui, sans-serif";
+  ctx.fillText(wrapCard(summary, W - 112)[0] || "", 56, H - 30);
+
+  canvas.toBlob((blob: Blob | null) => {
+    if (!blob) return;
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "ders-programi-cizelgesi.png";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }, "image/png");
+}

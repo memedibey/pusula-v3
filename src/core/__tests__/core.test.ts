@@ -5,7 +5,7 @@ import { parsePlainTextPlan } from "../docxXlsxParser";
 import { getKademeSubjects } from "../mebCatalog";
 import { splitOutcomeCode } from "../mebPalette";
 import { buildWeeklyDocxBlob, buildWeeklyXlsxBlob } from "../richExports";
-import { groupTimetableLessons, makeCellKey, migrateV2ToV3, sanitizeOutcomeText } from "../schema";
+import { groupTimetableLessons, makeCellKey, migrateV2ToV3, getTeachingWeeks, sanitizeOutcomeText } from "../schema";
 import { createDefaultStateV3 } from "../storage";
 import { decodeSyncCode, encodeSyncCode } from "../syncEngine";
 
@@ -150,5 +150,59 @@ describe("Pusula v3.0 Çekirdek Motoru", () => {
       "Matematik",
       "Robotik Kodlama"
     ]);
+  });
+
+  it("doneMarks (İşlendi) işaretlerini v3 göçü ve KD5Z eşitlemede korur", async () => {
+    const st = createDefaultStateV3();
+    st.outcomes["1|0|0"] = "T.4.1.1. Okur.";
+    st.doneMarks = { "1|0|0": 1700000001234 };
+    const code = await encodeSyncCode(st);
+    const decoded = await decodeSyncCode(code);
+    expect(decoded.doneMarks?.["1|0|0"]).toBe(1700000001234);
+  });
+
+  it("eğitim yılı hafta sayısını (34-40) dinamik olarak hesaplar", () => {
+    const st = createDefaultStateV3();
+    st.teachingWeeks = 35;
+    expect(getTeachingWeeks(st)).toBe(35);
+    const tl = buildCalendarTimeline(st.startMonday, st.weekHolidays, getTeachingWeeks(st));
+    expect(tl.filter((s) => s.kind === "teaching").length).toBe(35);
+    expect(tl.length).toBe(39);
+  });
+
+  it("haftasız dağınık metinden çöpü eleyip derslere otomatik dağıtır ve şube farkını hesaplar", () => {
+    const rawWeb = [
+      "Ana Sayfa",
+      "1. Ünite",
+      "M.4.1.1.1. Doğal sayıları okur.",
+      "T.4.1.1. Okuduğu metni anlar.",
+      "Ölçme ve Değerlendirme"
+    ].join("\n");
+    const res = parsePlainTextPlan(rawWeb, ["Türkçe", "Matematik"], 36);
+    expect(res.outcomesBySubject?.["Matematik"]?.[1]).toEqual(["M.4.1.1.1. Doğal sayıları okur."]);
+    expect(res.outcomesBySubject?.["Türkçe"]?.[1]).toEqual(["T.4.1.1. Okuduğu metni anlar."]);
+
+    const st = createDefaultStateV3();
+    st.mode = "brans";
+    st.timetable = [
+      [{ subject: "Matematik", section: "7/A" }, { subject: "Matematik", section: "7/B" }, null, null, null, null],
+      [{ subject: "Matematik", section: "7/A" }, null, null, null, null, null],
+      [null, null, null, null, null, null],
+      [null, null, null, null, null, null],
+      [null, null, null, null, null, null]
+    ];
+    st.outcomes["1|0|0"] = "M.7.1.1. Tam sayılar";
+    st.outcomes["1|1|0"] = "M.7.1.2. İşlemler";
+    const rep = computeProgressReport(st, 1);
+    expect(rep.find((r) => r.displayTitle === "7/B · Matematik")?.behindBestSlots).toBe(2);
+  });
+
+  it("okul ve öğretmen adını v3 göçü sırasında korur", () => {
+    const st = createDefaultStateV3();
+    st.schoolName = "Atatürk Ortaokulu";
+    st.teacherName = "Mehmet Yılmaz";
+    const migrated = migrateV2ToV3(st);
+    expect(migrated?.schoolName).toBe("Atatürk Ortaokulu");
+    expect(migrated?.teacherName).toBe("Mehmet Yılmaz");
   });
 });

@@ -6,6 +6,7 @@ import { ReportView } from "./components/ReportView";
 import { SearchModal } from "./components/SearchModal";
 import { SubjectFlowView } from "./components/SubjectFlowView";
 import { TimetableBuilder } from "./components/TimetableBuilder";
+import { YearRadarModal } from "./components/YearRadarModal";
 import {
   addDaysIso,
   buildCalendarTimeline,
@@ -28,7 +29,7 @@ import {
   canvasToBlob,
   renderWeeklyCanvas
 } from "./core/richExports";
-import { MEB_2026_2027_CALENDAR, PusulaStateV3, groupTimetableLessons } from "./core/schema";
+import { MEB_2026_2027_CALENDAR, PusulaStateV3, getTeachingWeeks, groupTimetableLessons } from "./core/schema";
 import { createDefaultStateV3, exportEmbeddedHtmlV3, loadStateV3, saveLocalV3, saveShadowDbV3 } from "./core/storage";
 
 const DAY_NAMES = ["Pazartesi", "Salı", "Çarşamba", "Perşembe", "Cuma"];
@@ -47,15 +48,7 @@ export function App() {
   const [todayIso] = useState(() => getTodayIso());
 
   const isMeb26 = toMondayIso(state.startMonday) === MEB_2026_2027_CALENDAR.term1Start;
-  const teachingCount = useMemo(() => {
-    if (!isMeb26) return state.maxWeek;
-    let maxW = MEB_2026_2027_CALENDAR.teachingWeeks;
-    for (const k of Object.keys(state.outcomes)) {
-      const m = k.match(/^(\d+)\|/);
-      if (m && Number(m[1]) > maxW && Number(m[1]) <= state.maxWeek) maxW = state.maxWeek;
-    }
-    return maxW;
-  }, [isMeb26, state.outcomes, state.maxWeek]);
+  const teachingCount = useMemo(() => getTeachingWeeks(state), [state]);
 
   const timeline = useMemo(
     () => buildCalendarTimeline(state.startMonday, state.weekHolidays, teachingCount),
@@ -72,7 +65,7 @@ export function App() {
 
   const [activeMonday, setActiveMonday] = useState<string>(() => {
     const mon = toMondayIso(getTodayIso());
-    const initTl = buildCalendarTimeline(init.state.startMonday, init.state.weekHolidays, 37);
+    const initTl = buildCalendarTimeline(init.state.startMonday, init.state.weekHolidays, getTeachingWeeks(init.state));
     const hit = initTl.find((s) => s.monday === mon);
     if (hit) return hit.monday;
     return mon < initTl[0].monday ? initTl[0].monday : initTl[initTl.length - 1].monday;
@@ -84,6 +77,8 @@ export function App() {
   });
   const [viewMode, setViewMode] = useState<"ders" | "kokpit">("ders");
   const [searchOpen, setSearchOpen] = useState(false);
+  const [radarOpen, setRadarOpen] = useState(false);
+  const navRef = useRef({ prev: () => {}, next: () => {}, canPrev: false, canNext: false });
   const [menuOpen, setMenuOpen] = useState(false);
   const [exportBusy, setExportBusy] = useState<string | null>(null);
   const [importSubTab, setImportSubTab] = useState<"file" | "text" | "backup">("file");
@@ -150,6 +145,16 @@ export function App() {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setRadarOpen(false);
+        setSearchOpen(false);
+        setMenuOpen(false);
+      }
+      const tag = ((e.target as HTMLElement | null)?.tagName || "").toUpperCase();
+      if (!["INPUT", "TEXTAREA", "SELECT"].includes(tag) && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        if ((e.key === "[" || e.key === "PageUp") && navRef.current.canPrev) { e.preventDefault(); navRef.current.prev(); }
+        if ((e.key === "]" || e.key === "PageDown") && navRef.current.canNext) { e.preventDefault(); navRef.current.next(); }
+      }
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
         e.preventDefault();
         setSearchOpen((s) => !s);
@@ -327,6 +332,7 @@ export function App() {
         }
       : null;
 
+  navRef.current = { prev: stepPrev, next: stepNext, canPrev, canNext };
   return (
     <>
       <div className="mx-auto flex max-w-[760px] flex-col gap-3.5 md:max-w-[920px] lg:max-w-[1060px]">
@@ -366,7 +372,7 @@ export function App() {
                       if (w) { w.document.open(); w.document.write(html); w.document.close(); }
                       else void shareOrDownloadBlob(new Blob([html], { type: "text/html;charset=utf-8" }), `sinif-defteri-${week}-hafta.html`, notify);
                     }} className="flex min-h-11 w-full items-center justify-between border-0 bg-transparent px-3.5 text-left text-sm hover:bg-[var(--accent-soft)] disabled:opacity-40"><span>Resmi Sınıf Defteri (A4)</span><span className="font-mono-num text-xs text-[var(--muted)]">yazdır</span></button>
-                    <button type="button" onClick={() => { setMenuOpen(false); void shareOrDownloadBlob(generateProgressCsv(state, 37), "zumre-raporu.csv", notify); }} className="flex min-h-11 w-full items-center justify-between border-0 bg-transparent px-3.5 text-left text-sm hover:bg-[var(--accent-soft)]"><span>Zümre Raporu</span><span className="font-mono-num text-xs text-[var(--muted)]">.csv</span></button>
+                    <button type="button" onClick={() => { setMenuOpen(false); void shareOrDownloadBlob(generateProgressCsv(state, teachingCount), "zumre-raporu.csv", notify); }} className="flex min-h-11 w-full items-center justify-between border-0 bg-transparent px-3.5 text-left text-sm hover:bg-[var(--accent-soft)]"><span>Zümre Raporu</span><span className="font-mono-num text-xs text-[var(--muted)]">.csv</span></button>
                     <div className="my-1 border-t border-[var(--line)]" />
                     <div className="px-3.5 py-1 text-[11px] font-bold uppercase text-[var(--muted)]">Çevrimdışı HTML Sürüm</div>
                     <button type="button" onClick={() => { setMenuOpen(false); void shareOrDownloadBlob(new Blob([exportEmbeddedHtmlV3(state)], { type: "text/html;charset=utf-8" }), `kazanim-defteri-pusula-v3-${todayIso}.html`, notify); }} className="flex min-h-11 w-full items-center justify-between border-0 bg-transparent px-3.5 text-left text-sm font-semibold text-[var(--accent)] hover:bg-[var(--accent-soft)]"><span>Verilerimle HTML indir</span><span className="font-mono-num text-xs text-[var(--muted)]">.html</span></button>
@@ -376,11 +382,26 @@ export function App() {
                 )}
               </div>
 
-              <button type="button" onClick={() => setSearchOpen((s) => !s)} className="kd-btn">Ara</button>
+              <button type="button" onClick={() => { setSearchOpen((s) => !s); setRadarOpen(false); }} className="kd-btn">Ara</button>
               <button type="button" onClick={() => setTheme((t) => (t === "dark" ? "light" : "dark"))} className="kd-btn">{theme === "dark" ? "Açık tema" : "Koyu tema"}</button>
               <button type="button" onClick={() => { setImportSubTab("file"); if (importDetailsRef.current) { importDetailsRef.current.open = true; importDetailsRef.current.scrollIntoView({ behavior: "smooth", block: "start" }); } }} className="kd-btn kd-btn-primary">Toplu ekle</button>
             </div>
           </div>
+
+          {radarOpen && (
+            <YearRadarModal
+              state={state}
+              timeline={timeline}
+              activeMonday={activeSlot.monday}
+              specialPre={specialPre}
+              groups={groups}
+              activeGroup={activeGroup}
+              onJumpWeek={jumpToWeek}
+              onJumpMonday={(mon) => { setSpecialPre(null); setActiveMonday(mon); }}
+              onJumpPre={(pre) => setSpecialPre(pre)}
+              onClose={() => setRadarOpen(false)}
+            />
+          )}
 
           {searchOpen && (
             <SearchModal state={state} onJump={(w, gk) => { jumpToWeek(w); if (gk) setSelectedGroupKey(gk); setViewMode("ders"); }} onClose={() => setSearchOpen(false)} />
@@ -414,6 +435,13 @@ export function App() {
                   {viewMode === "ders" ? "Günlük Kokpit" : "Ders Görünümü"}
                 </button>
               )}
+              <button
+                type="button"
+                onClick={() => { setRadarOpen((r) => !r); setSearchOpen(false); }}
+                className={`kd-btn text-xs ${radarOpen ? "kd-btn-primary" : ""}`}
+              >
+                {teachingCount} Hafta Harita
+              </button>
               <button type="button" onClick={() => handleDatePick(todayIso)} className="kd-btn">Bugün</button>
             </div>
           </div>

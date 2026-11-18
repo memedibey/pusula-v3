@@ -2,7 +2,7 @@ import React, { useMemo } from "react";
 import { computeProgressReport } from "../core/branchPlanner";
 import { shareOrDownloadBlob } from "../core/mobileDownload";
 import { generateProgressCsv, generateWeeklyClassbookHtml } from "../core/officialExport";
-import { PusulaStateV3 } from "../core/schema";
+import { PusulaStateV3, getTeachingWeeks } from "../core/schema";
 import { exportEmbeddedHtmlV3 } from "../core/storage";
 
 interface Props {
@@ -12,7 +12,8 @@ interface Props {
 }
 
 export const ReportView: React.FC<Props> = ({ state, week, onNotify }) => {
-  const rows = useMemo(() => computeProgressReport(state, 37), [state]);
+  const totalWeeks = getTeachingWeeks(state);
+  const rows = useMemo(() => computeProgressReport(state, totalWeeks), [state, totalWeeks]);
 
   const handlePrintClassbook = () => {
     const html = generateWeeklyClassbookHtml(state, week);
@@ -40,7 +41,7 @@ export const ReportView: React.FC<Props> = ({ state, week, onNotify }) => {
           type="button"
           onClick={() => {
             void shareOrDownloadBlob(
-              generateProgressCsv(state, 37),
+              generateProgressCsv(state, totalWeeks),
               "zumre-gerceklesme-raporu.csv",
               onNotify
             );
@@ -82,7 +83,7 @@ export const ReportView: React.FC<Props> = ({ state, week, onNotify }) => {
         {rows.map((r) => (
           <div key={r.groupKey} className="rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-4">
             <div className="mb-1 flex items-center justify-between gap-2">
-              <strong className="text-base">{r.displayTitle}</strong>
+              <div className="flex flex-wrap items-center gap-1.5"><strong className="text-base">{r.displayTitle}</strong>{r.behindBestSlots > 0 && <span className="rounded-md bg-amber-500/15 px-1.5 py-0.5 text-[11px] font-bold text-amber-700 dark:text-amber-300">{r.behindBestSlots} ders geride</span>}</div>
               <span className="font-mono-num text-sm font-bold text-[var(--accent)]">
                 %{r.completionPct} ({r.filledSlots}/{r.totalActiveSlots})
               </span>

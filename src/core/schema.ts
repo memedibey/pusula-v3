@@ -12,12 +12,15 @@ export interface HolidayWeek {
 }
 
 export interface PusulaStateV3 {
+  schoolName?: string;
+  teacherName?: string;
   version: 3;
   kademe: Kademe;
   mode: TeacherMode;
   gradeLabel?: string;
   slotsPerDay: number;
   maxWeek: number;
+  teachingWeeks?: number;
   startMonday: string;
   weekHolidays: HolidayWeek[];
   dayHolidays: Record<string, string>;
@@ -25,6 +28,7 @@ export interface PusulaStateV3 {
   outcomes: Record<string, string>;
   outcomeUpdatedAt: Record<string, number>;
   teacherNotes: Record<string, string>;
+  doneMarks?: Record<string, number>;
   subjectCatalog?: Partial<Record<Kademe, string[]>>;
   updatedAt: number;
 }
@@ -105,6 +109,10 @@ export const MEB_2026_2027_CALENDAR = {
 
 export const MEB_2026_2027_DAY_HOLIDAYS: Record<string, string> = {};
 
+export function getTeachingWeeks(state: Pick<PusulaStateV3, "teachingWeeks">): number {
+  return Math.min(45, Math.max(30, Math.round(state.teachingWeeks || MEB_2026_2027_CALENDAR.teachingWeeks)));
+}
+
 export function makeCellKey(week: number, dayIndex: number, slotIndex: number): string {
   return `${week}|${dayIndex}|${slotIndex}`;
 }
@@ -163,8 +171,11 @@ export function migrateV2ToV3(raw: unknown): PusulaStateV3 | null {
       kademe: src.kademe === "ortaokul" || src.kademe === "lise" ? src.kademe : "ilkokul",
       mode: src.mode === "brans" ? "brans" : "sinif",
       gradeLabel: typeof src.gradeLabel === "string" ? src.gradeLabel : undefined,
+      schoolName: typeof src.schoolName === "string" ? src.schoolName : undefined,
+      teacherName: typeof src.teacherName === "string" ? src.teacherName : undefined,
       slotsPerDay: slots,
       maxWeek: typeof src.maxWeek === "number" ? src.maxWeek : 45,
+      teachingWeeks: typeof src.teachingWeeks === "number" ? Math.min(45, Math.max(30, Math.round(src.teachingWeeks))) : undefined,
       startMonday: typeof src.startMonday === "string" ? src.startMonday : MEB_2026_2027_CALENDAR.term1Start,
       weekHolidays: Array.isArray(src.weekHolidays) ? (src.weekHolidays as HolidayWeek[]) : [],
       dayHolidays: src.dayHolidays && typeof src.dayHolidays === "object" ? (src.dayHolidays as Record<string, string>) : {},
@@ -172,6 +183,7 @@ export function migrateV2ToV3(raw: unknown): PusulaStateV3 | null {
       outcomes: sanitizeOutcomesMap(src.outcomes),
       outcomeUpdatedAt: src.outcomeUpdatedAt && typeof src.outcomeUpdatedAt === "object" ? (src.outcomeUpdatedAt as Record<string, number>) : {},
       subjectCatalog: src.subjectCatalog && typeof src.subjectCatalog === "object" ? (src.subjectCatalog as Partial<Record<Kademe, string[]>>) : undefined,
+      doneMarks: src.doneMarks && typeof src.doneMarks === "object" ? (src.doneMarks as Record<string, number>) : undefined,
       teacherNotes: src.teacherNotes && typeof src.teacherNotes === "object" ? (src.teacherNotes as Record<string, string>) : {},
       updatedAt: typeof src.updatedAt === "number" ? src.updatedAt : Date.now()
     };

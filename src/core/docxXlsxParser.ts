@@ -14,15 +14,20 @@ export interface ParsedPlanResult {
 const MONTHS_TR = ["ocak", "şubat", "mart", "nisan", "mayıs", "haziran", "temmuz", "ağustos", "eylül", "ekim", "kasım", "aralık"];
 const MEB_TL = buildCalendarTimeline(MEB_2026_2027_CALENDAR.term1Start, MEB_2026_2027_CALENDAR.weekHolidays, 37);
 
+const CODE_RULES: Array<[RegExp, string]> = [
+  [/\bT\.\d+\.\d+/i, "türkçe"], [/\bTDE\.\d+/i, "türk dili"], [/\bM\.\d+\.\d+/i, "matematik"], [/\bMAT\.\d+/i, "matematik"],
+  [/\bF\.\d+\.\d+/i, "fen bilimleri"], [/\bFB\.\d+/i, "fen bilimleri"], [/\bHB\.\d+/i, "hayat bilgisi"],
+  [/\bFİZ\.\d+/i, "fizik"], [/\bKİM\.\d+/i, "kimya"], [/\bBİY\.\d+/i, "biyoloji"],
+  [/\bSB\.\d+\.\d+/i, "sosyal bilgiler"], [/\bTAR\.\d+/i, "tarih"], [/\bCOĞ\.\d+/i, "coğrafya"], [/\bFEL\.\d+/i, "felsefe"],
+  [/\bE\d+\.\d+\.[A-Z]\d/i, "ingilizce"], [/\bDK(?:AB)?\.\d+/i, "din kültürü"], [/\bMü\.\d+/i, "müzik"],
+  [/\bG\.\d+\.\d+/i, "görsel sanatlar"], [/\bY\.\d+\.\d+/i, "insan hakları"], [/\bBO\.\d+\.\d+/i, "oyun ve fiziki"], [/\bTG\.\d+\.\d+/i, "trafik güvenliği"]
+];
+
+const OUTCOME_VERB_RE = /(?:okur|yazar|açıklar|hesaplar|kavrar|analiz\s+eder|yorumlar|karşılaştırır|uygular|çözer|tanır|belirler|fark\s+eder|sorgular|oluşturur|değerlendirir|gösterir|bilir|anlar|ifade\s+eder|tahmin\s+eder|sıralar|sınıflandırır|inceler|tartışır|üretir)\.?$/i;
+const NOISE_LINE_RE = /^(?:ana\s*sayfa|içindekiler|ünite|tema|\d+\.\s*(?:ünite|tema|bölüm)|ders\s*saati|haftalık\s*ders|kazanım|öğrenme\s*çıktı|ölçme\s*ve\s*değerlendirme|atatürkçülük|belirli\s*gün|yöntem|teknik|araç|gereç|https?:\/\/)/i;
+
 export function detectSubjectFromText(subjects: string[], fullText: string): string | undefined {
-  const codeRules: Array<[RegExp, string]> = [
-    [/\bT\.\d+\.\d+/i, "türkçe"], [/\bTDE\.\d+/i, "türk dili"], [/\bM\.\d+\.\d+/i, "matematik"], [/\bMAT\.\d+/i, "matematik"],
-    [/\bF\.\d+\.\d+/i, "fen bilimleri"], [/\bFB\.\d+/i, "fen bilimleri"], [/\bFİZ\.\d+/i, "fizik"], [/\bKİM\.\d+/i, "kimya"],
-    [/\bBİY\.\d+/i, "biyoloji"], [/\bSB\.\d+\.\d+/i, "sosyal bilgiler"], [/\bTAR\.\d+/i, "tarih"], [/\bCOĞ\.\d+/i, "coğrafya"],
-    [/\bE\d+\.\d+\.[A-Z]\d/i, "ingilizce"], [/\bMü\.\d+/i, "müzik"], [/\bG\.\d+\.\d+/i, "görsel sanatlar"],
-    [/\bY\.\d+\.\d+/i, "insan hakları"], [/\bBO\.\d+\.\d+/i, "oyun ve fiziki"], [/\bTG\.\d+\.\d+/i, "trafik güvenliği"]
-  ];
-  for (const [re, kw] of codeRules) {
+  for (const [re, kw] of CODE_RULES) {
     if (re.test(fullText)) {
       const hit = subjects.find((s) => s.toLocaleLowerCase("tr-TR").includes(kw));
       if (hit) return hit;
@@ -30,6 +35,24 @@ export function detectSubjectFromText(subjects: string[], fullText: string): str
   }
   const head = fullText.slice(0, 1500).toLocaleLowerCase("tr-TR");
   return subjects.find((s) => head.includes(s.toLocaleLowerCase("tr-TR")));
+}
+
+function detectSubjectForLine(subjects: string[], line: string): string | null {
+  for (const [re, kw] of CODE_RULES) {
+    if (re.test(line)) {
+      const hit = subjects.find((s) => s.toLocaleLowerCase("tr-TR").includes(kw));
+      if (hit) return hit;
+    }
+  }
+  return null;
+}
+
+function isLikelyOutcomeLine(line: string): boolean {
+  const s = line.trim();
+  if (!s || s.length < 10 || s.length > 500 || NOISE_LINE_RE.test(s)) return false;
+  if (UNIVERSAL_CODE_REGEX.test(s)) return true;
+  if (s.length >= 22 && (OUTCOME_VERB_RE.test(s) || /[.!?]$/.test(s))) return true;
+  return false;
 }
 
 async function readZipEntries(buffer: ArrayBuffer, filterFn: (name: string) => boolean): Promise<Record<string, string>> {
@@ -92,14 +115,12 @@ function extractDateWeeks(text: string): { weeks: number[]; isHoliday: boolean }
     if (a) isos.push(a);
     if (b) isos.push(b);
   }
-
   const trDateRe = /(\d{1,2})\s+(ocak|şubat|mart|nisan|mayıs|haziran|temmuz|ağustos|eylül|ekim|kasım|aralık)(?:\s+(\d{4}))?/g;
   while ((m = trDateRe.exec(low)) !== null) {
     const mIdx = MONTHS_TR.indexOf(m[2]) + 1, yr = m[3] ? Number(m[3]) : undefined;
     const dIso = toIsoDate(Number(m[1]), mIdx, yr);
     if (dIso) isos.push(dIso);
   }
-
   const numRe = /\b(\d{1,2})[./](\d{1,2})[./](\d{4})\b/g;
   while ((m = numRe.exec(text)) !== null) {
     const dIso = toIsoDate(Number(m[1]), Number(m[2]), Number(m[3]));
@@ -119,9 +140,7 @@ function extractWeekNumbers(text: string, allowBare: boolean): number[] {
   const rangeM = text.match(/\b(\d{1,2})\s*(?:[-–/]|ve)\s*(\d{1,2})\s*\.\s*Hafta\b/i);
   if (rangeM) {
     const a = Number(rangeM[1]), b = Number(rangeM[2]);
-    if (a >= 1 && b >= a && b <= 45 && b - a <= 6) {
-      return Array.from({ length: b - a + 1 }, (_, i) => a + i);
-    }
+    if (a >= 1 && b >= a && b <= 45 && b - a <= 6) return Array.from({ length: b - a + 1 }, (_, i) => a + i);
   }
   const singleM = text.match(/\b(\d{1,2})\s*\.\s*Hafta\b/i);
   if (singleM) {
@@ -162,20 +181,38 @@ function matchSubjectCell(val: string, subjects: string[]): string | null {
   return subjects.find((s) => { const sn = s.replace(/i\u0307/g, "i").toLocaleLowerCase("tr-TR").trim(); return norm === sn || (norm.includes("·") && norm.endsWith(sn)); }) || null;
 }
 
-function extractFromTables(tables: string[][][]): Record<number, string[]> {
+function addOutcomeForSubj(
+  bySubj: Record<string, Record<number, string[]>>,
+  subj: string | null,
+  w: number,
+  items: string[]
+) {
+  if (!subj) return;
+  bySubj[subj] = bySubj[subj] || {};
+  bySubj[subj][w] = [...(bySubj[subj][w] || []), ...items];
+}
+
+function extractFromTables(
+  tables: string[][][],
+  subjects: string[],
+  targetWeeks: number
+): { weekly: Record<number, string[]>; bySubj: Record<string, Record<number, string[]>> } {
   const weekly: Record<number, string[]> = {};
+  const bySubj: Record<string, Record<number, string[]>> = {};
+
   for (const table of tables) {
-    let headerIdx = -1, weekCol = -1, dateCol = -1, hourCol = -1, outcomeCol = -1;
+    let headerIdx = -1, weekCol = -1, dateCol = -1, hourCol = -1, subjCol = -1, outcomeCol = -1;
     for (let r = 0; r < Math.min(5, table.length); r++) {
-      let wCol = -1, dCol = -1, hCol = -1, oCol = -1;
+      let wCol = -1, dCol = -1, hCol = -1, sCol = -1, oCol = -1;
       table[r].forEach((cell, idx) => {
         const low = cell.toLocaleLowerCase("tr-TR");
         if (wCol === -1 && /\bhafta\b/.test(low)) wCol = idx;
         if (dCol === -1 && /\btarih\b/.test(low)) dCol = idx;
         if (hCol === -1 && /(ders\s*saat|\bsaat\b|\bsüre\b)/.test(low)) hCol = idx;
+        if (sCol === -1 && /\bders\b/.test(low)) sCol = idx;
         if (oCol === -1 && /(kazanım|kazanim|öğrenme\s*çıkt|ogrenme\s*cikt|süreç\s*bileşen|alan\s*beceri|hedef|konu)/.test(low)) oCol = idx;
       });
-      if (oCol !== -1 || wCol !== -1 || dCol !== -1) { headerIdx = r; weekCol = wCol; dateCol = dCol; hourCol = hCol; outcomeCol = oCol; break; }
+      if (oCol !== -1 || wCol !== -1 || dCol !== -1) { headerIdx = r; weekCol = wCol; dateCol = dCol; hourCol = hCol; subjCol = sCol; outcomeCol = oCol; break; }
     }
 
     let lastWeeks: number[] = [];
@@ -183,9 +220,7 @@ function extractFromTables(tables: string[][][]): Record<number, string[]> {
       const row = table[r];
       if (!row || row.length === 0) continue;
 
-      let rowWeeks: number[] = [];
-      let isHolRow = false;
-
+      let rowWeeks: number[] = [], isHolRow = false;
       if (dateCol !== -1 && row[dateCol]) {
         const dRes = extractDateWeeks(row[dateCol]);
         if (dRes.isHoliday) isHolRow = true;
@@ -193,7 +228,7 @@ function extractFromTables(tables: string[][][]): Record<number, string[]> {
       }
       if (!isHolRow && rowWeeks.length === 0) {
         for (let c = 0; c < row.length; c++) {
-          if (c === outcomeCol || c === hourCol) continue;
+          if (c === outcomeCol || c === hourCol || c === subjCol) continue;
           const dRes = extractDateWeeks(row[c] || "");
           if (dRes.isHoliday && dRes.weeks.length === 0) { isHolRow = true; break; }
           if (dRes.weeks.length > 0) { rowWeeks = dRes.weeks; break; }
@@ -201,41 +236,48 @@ function extractFromTables(tables: string[][][]): Record<number, string[]> {
       }
       if (isHolRow) { lastWeeks = []; continue; }
 
-      if (rowWeeks.length === 0 && weekCol !== -1 && row[weekCol]) {
-        rowWeeks = extractWeekNumbers(row[weekCol], true);
-      }
+      if (rowWeeks.length === 0 && weekCol !== -1 && row[weekCol]) rowWeeks = extractWeekNumbers(row[weekCol], true);
       if (rowWeeks.length === 0) {
         for (let c = 0; c < Math.min(3, row.length); c++) {
-          if (c === hourCol || c === outcomeCol) continue;
+          if (c === hourCol || c === outcomeCol || c === subjCol) continue;
           rowWeeks = extractWeekNumbers(row[c] || "", c === 0 && weekCol === -1);
           if (rowWeeks.length > 0) break;
         }
       }
 
+      const rowSubjFromCol = subjCol !== -1 && row[subjCol] ? matchSubjectCell(row[subjCol], subjects) : null;
       let rawOutcome = outcomeCol !== -1 ? row[outcomeCol] || "" : "";
       if (!rawOutcome.trim()) {
-        rawOutcome = row.filter((cell, idx) => idx !== weekCol && idx !== dateCol && idx !== hourCol && !isDateCell(cell) && !isHourOrOrderCell(cell))
+        rawOutcome = row.filter((cell, idx) => idx !== weekCol && idx !== dateCol && idx !== hourCol && idx !== subjCol && !isDateCell(cell) && !isHourOrOrderCell(cell))
           .sort((a, b) => (UNIVERSAL_CODE_REGEX.test(b.trim()) ? 1 : 0) - (UNIVERSAL_CODE_REGEX.test(a.trim()) ? 1 : 0) || b.length - a.length)[0] || "";
       }
 
       const items = splitOutcomeItems(rawOutcome);
       if (rowWeeks.length === 0) {
-        if (lastWeeks.length > 0 && items.length > 0 && (UNIVERSAL_CODE_REGEX.test(items[0]) || items[0].length >= 16)) {
-          rowWeeks = lastWeeks;
-        } else continue;
+        if (lastWeeks.length > 0 && items.length > 0 && (UNIVERSAL_CODE_REGEX.test(items[0]) || items[0].length >= 16)) rowWeeks = lastWeeks;
+        else continue;
       } else {
         lastWeeks = rowWeeks;
       }
       if (items.length === 0) continue;
       rowWeeks.forEach((w) => {
-        if (w >= 1 && w <= 45) weekly[w] = [...(weekly[w] || []), ...items];
+        if (w >= 1 && w <= 45) {
+          weekly[w] = [...(weekly[w] || []), ...items];
+          items.forEach((it) => addOutcomeForSubj(bySubj, rowSubjFromCol ?? detectSubjectForLine(subjects, it), w, [it]));
+        }
       });
     }
   }
-  return weekly;
+
+  if (Object.keys(weekly).length === 0) {
+    const flatText = tables.flatMap((t) => t.flatMap((r) => r)).join("\n");
+    const smart = parsePlainTextPlan(flatText, subjects, targetWeeks);
+    return { weekly: smart.weeklyOutcomes, bySubj: smart.outcomesBySubject || {} };
+  }
+  return { weekly, bySubj };
 }
 
-export async function parseDocxPlan(buffer: ArrayBuffer, subjects: string[] = []): Promise<ParsedPlanResult> {
+export async function parseDocxPlan(buffer: ArrayBuffer, subjects: string[] = [], targetWeeks: number = 37): Promise<ParsedPlanResult> {
   const files = await readZipEntries(buffer, (n) => n === "word/document.xml");
   const xml = files["word/document.xml"];
   if (!xml) throw new Error("Word belgesi okunamadı.");
@@ -249,8 +291,20 @@ export async function parseDocxPlan(buffer: ArrayBuffer, subjects: string[] = []
     });
     if (rows.length) tables.push(rows);
   });
-  const weeklyOutcomes = extractFromTables(tables), weeks = Object.keys(weeklyOutcomes);
-  return { weeklyOutcomes, weeksDetected: weeks.length, totalItems: weeks.reduce((acc, w) => acc + weeklyOutcomes[Number(w)].length, 0), detectedSubject: detectSubjectFromText(subjects, allTextParts.join("\n")), sourceKind: "docx" };
+  if (tables.length === 0) {
+    const paras = Array.from(doc.getElementsByTagName("w:p")).map((p) => Array.from(p.getElementsByTagName("w:t")).map((t) => t.textContent || "").join("")).filter((x) => x.trim());
+    return { ...parsePlainTextPlan(paras.join("\n"), subjects, targetWeeks), sourceKind: "docx" };
+  }
+  const { weekly, bySubj } = extractFromTables(tables, subjects, targetWeeks);
+  const weeks = Object.keys(weekly), subjKeys = Object.keys(bySubj);
+  return {
+    weeklyOutcomes: weekly,
+    outcomesBySubject: subjKeys.length > 0 ? bySubj : undefined,
+    weeksDetected: weeks.length,
+    totalItems: weeks.reduce((acc, w) => acc + weekly[Number(w)].length, 0),
+    detectedSubject: subjKeys.length === 1 ? subjKeys[0] : detectSubjectFromText(subjects, allTextParts.join("\n")),
+    sourceKind: "docx"
+  };
 }
 
 function colRefToIndex(ref: string): number {
@@ -260,7 +314,7 @@ function colRefToIndex(ref: string): number {
   return col - 1;
 }
 
-export async function parseXlsxPlan(buffer: ArrayBuffer, subjects: string[] = []): Promise<ParsedPlanResult> {
+export async function parseXlsxPlan(buffer: ArrayBuffer, subjects: string[] = [], targetWeeks: number = 37): Promise<ParsedPlanResult> {
   const files = await readZipEntries(buffer, (n) => n === "xl/sharedStrings.xml" || /^xl\/worksheets\/sheet\d+\.xml$/i.test(n));
   const parser = new DOMParser(), shared: string[] = [];
   if (files["xl/sharedStrings.xml"]) {
@@ -285,11 +339,19 @@ export async function parseXlsxPlan(buffer: ArrayBuffer, subjects: string[] = []
     });
     if (rows.length) tables.push(rows);
   }
-  const weeklyOutcomes = extractFromTables(tables), weeks = Object.keys(weeklyOutcomes);
-  return { weeklyOutcomes, weeksDetected: weeks.length, totalItems: weeks.reduce((acc, w) => acc + weeklyOutcomes[Number(w)].length, 0), detectedSubject: detectSubjectFromText(subjects, allTextParts.join("\n")), sourceKind: "xlsx" };
+  const { weekly, bySubj } = extractFromTables(tables, subjects, targetWeeks);
+  const weeks = Object.keys(weekly), subjKeys = Object.keys(bySubj);
+  return {
+    weeklyOutcomes: weekly,
+    outcomesBySubject: subjKeys.length > 0 ? bySubj : undefined,
+    weeksDetected: weeks.length,
+    totalItems: weeks.reduce((acc, w) => acc + weekly[Number(w)].length, 0),
+    detectedSubject: subjKeys.length === 1 ? subjKeys[0] : detectSubjectFromText(subjects, allTextParts.join("\n")),
+    sourceKind: "xlsx"
+  };
 }
 
-export async function parsePdfPlan(buffer: ArrayBuffer, subjects: string[] = []): Promise<ParsedPlanResult> {
+export async function parsePdfPlan(buffer: ArrayBuffer, subjects: string[] = [], targetWeeks: number = 37): Promise<ParsedPlanResult> {
   let pdfjs: { GlobalWorkerOptions: { workerSrc: string }; getDocument: (o: { data: Uint8Array }) => { promise: Promise<{ numPages: number; getPage: (n: number) => Promise<{ getTextContent: () => Promise<{ items: Array<{ str?: string }> }> }> }> } };
   try {
     const url = "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/legacy/build/pdf.min.mjs";
@@ -303,10 +365,10 @@ export async function parsePdfPlan(buffer: ArrayBuffer, subjects: string[] = [])
     const content = await (await doc.getPage(p)).getTextContent();
     lines.push(...content.items.map((it) => it.str || "").join(" ").split(/(?=\b\d{1,2}(?:\s*[-–]\s*\d{1,2})?\s*\.\s*Hafta\b)/i));
   }
-  return { ...parsePlainTextPlan(lines.join("\n"), subjects), sourceKind: "pdf" };
+  return { ...parsePlainTextPlan(lines.join("\n"), subjects, targetWeeks), sourceKind: "pdf" };
 }
 
-export function parsePlainTextPlan(text: string, subjects: string[] = []): ParsedPlanResult {
+export function parsePlainTextPlan(text: string, subjects: string[] = [], targetWeeks: number = 37): ParsedPlanResult {
   const weeklyOutcomes: Record<number, string[]> = {};
   const outcomesBySubject: Record<string, Record<number, string[]>> = {};
   let currentWeeks: number[] = [];
@@ -322,9 +384,7 @@ export function parsePlainTextPlan(text: string, subjects: string[] = []): Parse
       if (cols.length >= 2) {
         const headerLow = cols.slice(0, 4).join(" ").toLocaleLowerCase("tr-TR");
         if (/\bhafta\b/.test(headerLow) && /(kazanım|kazanim|ders|tarih)/.test(headerLow)) continue;
-        let rowWeeks: number[] = [];
-        let isHol = false;
-        let rowSubj: string | null = null;
+        let rowWeeks: number[] = [], isHol = false, rowSubj: string | null = null;
         const metaCols = new Set<number>();
 
         for (let cIdx = 0; cIdx < cols.length; cIdx++) {
@@ -358,10 +418,7 @@ export function parsePlainTextPlan(text: string, subjects: string[] = []): Parse
           currentWeeks = activeWeeks;
           activeWeeks.forEach((w) => {
             weeklyOutcomes[w] = [...(weeklyOutcomes[w] || []), ...items];
-            if (rowSubj) {
-              outcomesBySubject[rowSubj] = outcomesBySubject[rowSubj] || {};
-              outcomesBySubject[rowSubj][w] = [...(outcomesBySubject[rowSubj][w] || []), ...items];
-            }
+            items.forEach((it) => addOutcomeForSubj(outcomesBySubject, rowSubj ?? detectSubjectForLine(subjects, it), w, [it]));
           });
         }
         continue;
@@ -373,14 +430,54 @@ export function parsePlainTextPlan(text: string, subjects: string[] = []): Parse
     if (dLead.weeks.length > 0 || wnLead.length > 0) {
       currentWeeks = dLead.weeks.length > 0 ? dLead.weeks : wnLead;
       const rest = sanitizeOutcomeText(line.replace(/^\d{1,2}(?:\s*[-–]\s*\d{1,2})?\s*\.\s*Hafta\s*[:\-–|]?\s*/i, "").trim());
-      if (rest && !isDateCell(rest)) currentWeeks.forEach((w) => { weeklyOutcomes[w] = [...(weeklyOutcomes[w] || []), rest]; });
+      if (rest && !isDateCell(rest)) currentWeeks.forEach((w) => {
+        weeklyOutcomes[w] = [...(weeklyOutcomes[w] || []), rest];
+        addOutcomeForSubj(outcomesBySubject, detectSubjectForLine(subjects, rest), w, [rest]);
+      });
       continue;
     }
     if (currentWeeks.length > 0) {
       const cleanedLine = sanitizeOutcomeText(line);
-      if (cleanedLine) currentWeeks.forEach((w) => { weeklyOutcomes[w] = [...(weeklyOutcomes[w] || []), cleanedLine]; });
+      if (cleanedLine) currentWeeks.forEach((w) => {
+        weeklyOutcomes[w] = [...(weeklyOutcomes[w] || []), cleanedLine];
+        addOutcomeForSubj(outcomesBySubject, detectSubjectForLine(subjects, cleanedLine), w, [cleanedLine]);
+      });
     }
   }
+
+  // Akilli Haftasiz Ayiklama (kopyala-yapistir web/PDF listesi -> otomatik hafta dagitimi)
+  if (Object.keys(weeklyOutcomes).length === 0) {
+    const preFiltered = cleanedText.split("\n").map((l) => l.trim()).filter((l) => l && !NOISE_LINE_RE.test(l)).join("\n");
+    const rawItems = splitOutcomeItems(preFiltered).filter(isLikelyOutcomeLine);
+    if (rawItems.length > 0) {
+      const grouped = new Map<string, string[]>();
+      rawItems.forEach((it) => {
+        const subj = detectSubjectForLine(subjects, it) || "_default";
+        grouped.set(subj, [...(grouped.get(subj) || []), it]);
+      });
+
+      const distributeList = (list: string[], subj: string | null) => {
+        const span = list.length >= 15 ? Math.max(1, targetWeeks) : list.length;
+        if (list.length <= span) {
+          for (let w = 1; w <= span; w++) {
+            const idx = Math.min(list.length - 1, Math.floor(((w - 1) * list.length) / span));
+            const item = list[idx];
+            weeklyOutcomes[w] = [...(weeklyOutcomes[w] || []), item];
+            addOutcomeForSubj(outcomesBySubject, subj, w, [item]);
+          }
+        } else {
+          list.forEach((item, i) => {
+            const w = 1 + Math.min(span - 1, Math.floor((i * span) / list.length));
+            weeklyOutcomes[w] = [...(weeklyOutcomes[w] || []), item];
+            addOutcomeForSubj(outcomesBySubject, subj, w, [item]);
+          });
+        }
+      };
+
+      grouped.forEach((list, key) => distributeList(list, key === "_default" ? null : key));
+    }
+  }
+
   const weeks = Object.keys(weeklyOutcomes), subjKeys = Object.keys(outcomesBySubject);
   return {
     weeklyOutcomes,
