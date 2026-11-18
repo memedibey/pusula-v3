@@ -1,0 +1,15 @@
+{
+  "name": "Kazanım Defteri · Pusula",
+  "short_name": "Pusula v3",
+  "description": "1–12. Sınıf Çevrimdışı Haftalık Ders Kazanımı ve Şube Planı",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#0f172a",
+  "theme_color": "#0f172a",
+  "icons": [
+    { "src": "./icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+    { "src": "./icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}
