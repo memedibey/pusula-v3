@@ -54,10 +54,20 @@ K-016 | [DOĞRULANDI] | (KAYNAK: Kademe ders havuzu yaması) | İlkokul/Ortaokul
 ## 7. Çalışma Kuralları
 Dil Türkçe. v2.0 final dosyasının minified `<script type="module">` bloğunu değiştirme. Tüm yeni geliştirmeleri `C:\Users\meemc\pusula-v3` içinde temiz TypeScript modülleri olarak yap; her değişiklikten sonra `npm.cmd test` ve `npm.cmd run build` ile doğrula. PowerShell'de ExecutionPolicy nedeniyle `npm` yerine `npm.cmd` kullan.
 
+Çok yapay zekâ çalışma düzeni:
+- Tek yazar kuralı: kodu aynı anda yalnızca bir yapay zekâ değiştirir; eleştirmen ve editör rolündekiler kod yazmaz, yalnızca bulgu ve öneri verir.
+- Her yamadan önce git commit atılır. npm.cmd test, npm.cmd run build ve elle kontrol yeşil olmadan kayıt DOĞRULANDI yapılmaz ve sonraki yamaya geçilmez.
+- Eleştiri ve önerilerin her biri gerekçesiyle kabul veya ret edilir, körü körüne uygulanmaz.
+- Kapsam genişletilmez: yalnızca istenen değişiklik yapılır, çalışan kod bozulmaz.
+- Oturum sonunda: git commit, git push, DURUM.md sürümü artırılır, Kaynak satırına ve commit mesajına hangi yapay zekâ olduğu yazılır.
+- Son doğrulanmış hâl git etiketiyle işaretlenir (örn. v008-dogrulandi); geri dönüş bu etikete yapılır.
+
 ## 8. Değişiklik Notu
 - v001–v005: Kurulum, MEB 2026–2027 ana takvimi, mobil/tablet katmanı, HarmonyOS/macOS arayüzü ve Faz 5 çıktı/aktarım paketi.
 - v006: v2.0 birebir 4 tatil haftası (`TAM-005`, `366.97 kB`), kazanım kartlarından tarih/gün/saat kaldırılması ve `sanitizeOutcomeText` (`K-014`).
 - v007: Tarih öncelikli plan okuyucu, `1-2. Hafta` / `14-25 Eylül` aralık desteği, `rebalanceWeeklyPlan` (1–37 dengeli dağıtım) ve sakin `FloatingMissingDock` (`K-015`).
 - v008: İlkokul/Ortaokul/Lise kademe bazlı dinamik ders havuzu (ekle/çıkar + hızlı yerleştirme + şablon filtresi + `datalist`) (`K-016`).
 
-=== DURUM SONU v008 ===
+- v009: K-014, K-015, K-016 DOĞRULANDI (test 9/9 + elle kontrol); git + private GitHub kuruldu (v008-dogrulandi); çok yapay zekâ çalışma kuralları eklendi.
+
+=== DURUM SONU v009 ===
